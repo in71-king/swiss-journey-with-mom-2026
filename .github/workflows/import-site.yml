@@ -1,0 +1,64 @@
+name: Import current travel site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/import-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download current published site
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          base = "https://swiss-journey-with-mom-2026.easymel.chatgpt.site/"
+          paths = [line.strip() for line in Path("site-files.txt").read_text().splitlines() if line.strip()]
+
+          for index, relative in enumerate(paths, 1):
+              url = base + quote(relative, safe="/")
+              print(f"[{index}/{len(paths)}] {relative}", flush=True)
+              request = Request(url, headers={"User-Agent": "GitHub-Actions-Site-Migration/1.0"})
+              with urlopen(request, timeout=300) as response:
+                  data = response.read()
+              destination = Path(relative)
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(data)
+
+          Path(".nojekyll").touch()
+          PY
+
+      - name: Verify downloaded files
+        shell: bash
+        run: |
+          test -s index.html
+          test -s app.js
+          test -s styles.css
+          test -s manifest.webmanifest
+          test -s assets/day7/20260921_161810.webp
+          while IFS= read -r file; do
+            test -s "$file" || { echo "Missing or empty: $file"; exit 1; }
+          done < site-files.txt
+
+      - name: Commit imported site
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Import current Swiss journey site"
+          git push
