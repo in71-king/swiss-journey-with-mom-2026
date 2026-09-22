@@ -1,0 +1,17 @@
+{
+  "name": "어머니와 함께한 스위스 여행",
+  "short_name": "스위스 여행",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#08263d",
+  "theme_color": "#123b5d",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
