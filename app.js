@@ -156,7 +156,6 @@ dialog.addEventListener('touchcancel', () => {
 
 const mapDialog = document.querySelector('.map-dialog');
 const openMapButton = document.querySelector('.map-open-button');
-const routeMap = document.querySelector('.route-map');
 const closeMapButton = document.querySelector('.map-dialog-close');
 const mapViewport = document.querySelector('.map-viewport');
 const zoomMap = document.querySelector('.zoom-map-content');
@@ -164,6 +163,7 @@ const mapRecordDialog = document.querySelector('.map-record-dialog');
 const mapRecordMessage = document.querySelector('#map-record-message');
 const mapRecordYes = mapRecordDialog.querySelector('[data-map-record-answer="yes"]');
 const mapRecordNo = mapRecordDialog.querySelector('[data-map-record-answer="no"]');
+const overviewMapMarkers = [...document.querySelectorAll('.overview-map-svg .svg-map-marker[data-target]')];
 const mapRecordMarkers = [...mapDialog.querySelectorAll('.svg-map-marker[data-target]')];
 const mapInitialFocus = { x: 0, y: 70, width: 1000, height: 560 };
 let initialMapScale = 1;
@@ -239,10 +239,6 @@ function closeMapDialog() {
 }
 
 openMapButton.addEventListener('click', openMapDialog);
-routeMap.addEventListener('click', event => {
-  event.preventDefault();
-  openMapDialog();
-});
 closeMapButton.addEventListener('click', closeMapDialog);
 mapDialog.addEventListener('close', () => {
   mapDialog.classList.remove('is-rotated');
@@ -250,6 +246,26 @@ mapDialog.addEventListener('close', () => {
   activePointers.clear();
   lastPinchDistance = 0;
 });
+
+function goToTravelRecord(target) {
+  if (!target) return;
+  history.pushState(null, '', target);
+  document.querySelector(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+overviewMapMarkers.forEach(marker => {
+  const openRecord = event => {
+    event.stopPropagation();
+    goToTravelRecord(marker.dataset.target);
+  };
+  marker.addEventListener('click', openRecord);
+  marker.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openRecord(event);
+  });
+});
+
 mapRecordMarkers.forEach(marker => {
   marker.addEventListener('pointerdown', event => event.stopPropagation());
   const askToOpenRecord = event => {
@@ -278,12 +294,8 @@ mapRecordYes.addEventListener('click', () => {
   const target = pendingMapRecordTarget;
   pendingMapRecordTarget = null;
   mapRecordDialog.close();
-  mapDialog.close();
-  if (!target) return;
-  requestAnimationFrame(() => {
-    history.pushState(null, '', target);
-    document.querySelector(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  if (mapDialog.open) mapDialog.close();
+  requestAnimationFrame(() => goToTravelRecord(target));
 });
 mapViewport.addEventListener('wheel', event => {
   event.preventDefault();
