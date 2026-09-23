@@ -407,7 +407,7 @@ body :where(p, a, span, time, strong, b, button, figcaption, blockquote) {
 }
 .journey-map-svg .svg-number {
   fill: white;
-  font-size: 60px !important;
+  font-size: 52px !important;
   font-weight: 900;
   text-anchor: middle;
   pointer-events: none;
@@ -446,6 +446,21 @@ body :where(p, a, span, time, strong, b, button, figcaption, blockquote) {
   stroke: white;
   stroke-width: 4;
   filter: drop-shadow(0 3px 5px rgba(8,38,61,.25));
+}
+.journey-map-svg .map-inset-callout-halo,
+.journey-map-svg .map-inset-callout {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.journey-map-svg .map-inset-callout-halo { stroke: white; stroke-width: 14; opacity: .96; }
+.journey-map-svg .map-inset-callout { stroke: var(--navy); stroke-width: 6; }
+.journey-map-svg .map-inset-origin path {
+  fill: #ffd34e;
+  stroke: white;
+  stroke-width: 6;
+  filter: drop-shadow(0 4px 7px rgba(8,38,61,.32));
 }
 .overview-map-svg .svg-map-marker { pointer-events: none; }
 
