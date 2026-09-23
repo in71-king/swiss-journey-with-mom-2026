@@ -254,15 +254,18 @@ function goToTravelRecord(target) {
 }
 
 overviewMapMarkers.forEach(marker => {
-  const openRecord = event => {
+  const askToOpenRecord = event => {
     event.stopPropagation();
-    goToTravelRecord(marker.dataset.target);
+    pendingMapRecordTarget = marker.dataset.target;
+    mapRecordMessage.textContent = `${marker.dataset.dayLabel} (${marker.dataset.placeLabel})\n여행일지로 이동할까요?`;
+    mapRecordDialog.classList.remove('is-rotated');
+    mapRecordDialog.showModal();
   };
-  marker.addEventListener('click', openRecord);
+  marker.addEventListener('click', askToOpenRecord);
   marker.addEventListener('keydown', event => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
-    openRecord(event);
+    askToOpenRecord(event);
   });
 });
 
@@ -271,7 +274,7 @@ mapRecordMarkers.forEach(marker => {
   const askToOpenRecord = event => {
     event.stopPropagation();
     pendingMapRecordTarget = marker.dataset.target;
-    mapRecordMessage.textContent = `${marker.dataset.dayLabel} 여행 기록으로 이동하시겠습니까?`;
+    mapRecordMessage.textContent = `${marker.dataset.dayLabel} (${marker.dataset.placeLabel})\n여행일지로 이동할까요?`;
     mapRecordDialog.classList.toggle('is-rotated', mapDialog.classList.contains('is-rotated'));
     mapRecordDialog.showModal();
   };
