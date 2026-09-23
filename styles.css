@@ -127,12 +127,16 @@ blockquote { max-width: 750px; margin: 38px auto 0; padding: 24px 28px; border: 
 .photo-sequence .sequence-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .photo-sequence .sequence-grid.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .photo-sequence .photo-button { height: min(30vh, 320px); }
+.video-card > video,
+.video-player { aspect-ratio: 16 / 9; }
+.video-card[data-fullscreen-orientation="portrait"] > video,
+.video-card[data-fullscreen-orientation="portrait"] .video-player {
+  aspect-ratio: auto;
+  height: min(70dvh, 650px);
+}
 .video-card video { width: 100%; max-height: 650px; background: black; }
-.day-story#day8 .video-card > video,
-.day-story#day8 .video-player { aspect-ratio: 16 / 9; }
-.day-story#day8 .video-player video { height: 100%; min-height: 0; }
 .video-player { position: relative; display: grid; width: 100%; overflow: hidden; color: white; background: #02080c; -webkit-user-select: none; user-select: none; }
-.video-player video { grid-area: 1 / 1; width: 100%; min-height: 180px; max-height: min(70dvh, 650px); object-fit: contain; cursor: pointer; touch-action: manipulation; }
+.video-player video { grid-area: 1 / 1; width: 100%; height: 100%; min-height: 0; max-height: min(70dvh, 650px); object-fit: contain; cursor: pointer; touch-action: manipulation; }
 .video-controls { position: absolute; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 66px minmax(0,1fr) 66px; gap: 12px; align-items: center; padding: 30px 16px 16px; background: linear-gradient(transparent,rgba(0,0,0,.9) 35%); opacity: 1; transform: translateY(0); transition: opacity .25s ease, transform .25s ease; }
 .video-progress { --seek-percent: 0%; grid-column: 1 / -1; width: 100%; height: 52px; margin: -12px 0 -8px; padding: 0; appearance: none; -webkit-appearance: none; border: 0; outline: 0; background: transparent; cursor: pointer; touch-action: none; }
 .video-progress::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: linear-gradient(90deg,#9bd4ea 0 var(--seek-percent),rgba(255,255,255,.42) var(--seek-percent) 100%); }
