@@ -462,7 +462,7 @@ body :where(p, a, span, time, strong, b, button, figcaption, blockquote) {
   stroke-width: 6;
   filter: drop-shadow(0 4px 7px rgba(8,38,61,.32));
 }
-.overview-map-svg .svg-map-marker { pointer-events: none; }
+.overview-map-svg .svg-map-marker { pointer-events: auto; }
 
 .zoom-map-content {
   position: absolute;
