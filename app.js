@@ -6,6 +6,7 @@ if (window.startTravelDiaryAtTop) {
 
 const dialog = document.querySelector('.lightbox');
 const lightboxImage = dialog.querySelector('img');
+const lightboxControls = dialog.querySelector('.lightbox-controls');
 const closeButton = dialog.querySelector('.lightbox-close');
 const previousButton = dialog.querySelector('.lightbox-prev');
 const nextButton = dialog.querySelector('.lightbox-next');
@@ -65,8 +66,21 @@ function lightboxIsZoomed() {
   return Math.max(reportedScale, inferredScale) > 1.03;
 }
 
-function moveWithinLightbox(direction) {
-  if (lightboxIsZoomed()) return;
+function syncLightboxControlsToViewport() {
+  if (!dialog.open || !lightboxControls) return;
+  const viewport = window.visualViewport;
+  if (!viewport) {
+    lightboxControls.removeAttribute('style');
+    return;
+  }
+  const scale = Math.max(1, viewport.scale || 1);
+  lightboxControls.style.width = `${viewport.width * scale}px`;
+  lightboxControls.style.height = `${viewport.height * scale}px`;
+  lightboxControls.style.transform = `translate3d(${viewport.offsetLeft}px, ${viewport.offsetTop}px, 0) scale(${1 / scale})`;
+}
+
+function moveWithinLightbox(direction, { allowWhenZoomed = false } = {}) {
+  if (!allowWhenZoomed && lightboxIsZoomed()) return;
   const currentButton = buttons[currentIndex];
   const position = groupByButton.get(currentButton);
   if (!position) return;
@@ -95,12 +109,22 @@ buttons.forEach((button, index) => {
     requestPortraitOrientation();
     showImage(index);
     dialog.showModal();
+    requestAnimationFrame(syncLightboxControlsToViewport);
   });
 });
 
 closeButton.addEventListener('click', () => dialog.close());
-previousButton.addEventListener('click', () => moveWithinLightbox(-1));
-nextButton.addEventListener('click', () => moveWithinLightbox(1));
+previousButton.addEventListener('click', event => {
+  event.stopPropagation();
+  moveWithinLightbox(-1, { allowWhenZoomed: true });
+});
+nextButton.addEventListener('click', event => {
+  event.stopPropagation();
+  moveWithinLightbox(1, { allowWhenZoomed: true });
+});
+dialog.addEventListener('close', () => lightboxControls.removeAttribute('style'));
+window.visualViewport?.addEventListener('resize', syncLightboxControlsToViewport);
+window.visualViewport?.addEventListener('scroll', syncLightboxControlsToViewport);
 
 boundaryNoButton.addEventListener('click', closeBoundaryDialog);
 boundaryYesButton.addEventListener('click', () => {
@@ -300,6 +324,110 @@ mapRecordYes.addEventListener('click', () => {
   if (mapDialog.open) mapDialog.close();
   requestAnimationFrame(() => goToTravelRecord(target));
 });
+
+const mobileMenuHandle = document.querySelector('.mobile-menu-handle');
+const mobileNavigation = document.querySelector('.mobile-navigation');
+const mobileNavigationPanel = mobileNavigation.querySelector('.mobile-navigation-panel');
+const mobileNavigationClose = mobileNavigation.querySelector('.mobile-navigation-close');
+const mobileNavigationMap = mobileNavigation.querySelector('.mobile-navigation-map');
+const mobileNavigationDays = mobileNavigation.querySelector('.mobile-navigation-days');
+const dayStories = [...document.querySelectorAll('.day-story[id]')];
+let mobileMenuPointerStartX = null;
+let mobilePanelTouchStartX = null;
+
+function closeMobileNavigationThen(action) {
+  mobileNavigation.addEventListener('close', () => requestAnimationFrame(action), { once: true });
+  mobileNavigation.close();
+}
+
+document.querySelectorAll('.day-list .day-card[href^="#day"]').forEach(card => {
+  const link = document.createElement('a');
+  link.href = card.getAttribute('href');
+  const number = card.querySelector('.day-number')?.textContent?.trim() || '';
+  const title = card.querySelector('h3')?.textContent?.trim() || '';
+  link.innerHTML = `<span>${number}</span><strong>${title}</strong>`;
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    const target = link.getAttribute('href');
+    closeMobileNavigationThen(() => goToTravelRecord(target));
+  });
+  mobileNavigationDays.append(link);
+});
+
+function currentTravelRecordId() {
+  const readingLine = window.innerHeight * .38;
+  const visible = dayStories.find(story => {
+    const bounds = story.getBoundingClientRect();
+    return bounds.top <= readingLine && bounds.bottom > readingLine;
+  });
+  if (visible) return `#${visible.id}`;
+  const nearest = dayStories
+    .map(story => ({ story, distance: Math.abs(story.getBoundingClientRect().top - readingLine) }))
+    .sort((a, b) => a.distance - b.distance)[0]?.story;
+  return nearest ? `#${nearest.id}` : '';
+}
+
+function updateMobileNavigationCurrentDay() {
+  const currentTarget = currentTravelRecordId();
+  mobileNavigationDays.querySelectorAll('a').forEach(link => {
+    const isCurrent = link.getAttribute('href') === currentTarget;
+    link.classList.toggle('is-current', isCurrent);
+    if (isCurrent) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  });
+}
+
+function openMobileNavigation() {
+  if (mobileNavigation.open) return;
+  updateMobileNavigationCurrentDay();
+  mobileNavigation.showModal();
+  mobileMenuHandle.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('mobile-navigation-open');
+}
+
+function finishClosingMobileNavigation() {
+  mobileMenuHandle.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('mobile-navigation-open');
+}
+
+mobileMenuHandle.addEventListener('click', openMobileNavigation);
+mobileMenuHandle.addEventListener('pointerdown', event => {
+  mobileMenuPointerStartX = event.clientX;
+  mobileMenuHandle.setPointerCapture?.(event.pointerId);
+});
+mobileMenuHandle.addEventListener('pointerup', event => {
+  if (mobileMenuPointerStartX !== null && event.clientX - mobileMenuPointerStartX < -24) {
+    openMobileNavigation();
+  }
+  mobileMenuPointerStartX = null;
+});
+mobileMenuHandle.addEventListener('pointercancel', () => {
+  mobileMenuPointerStartX = null;
+});
+
+mobileNavigationClose.addEventListener('click', () => mobileNavigation.close());
+mobileNavigationMap.addEventListener('click', () => {
+  closeMobileNavigationThen(openMapDialog);
+});
+mobileNavigation.addEventListener('cancel', event => {
+  event.preventDefault();
+  mobileNavigation.close();
+});
+mobileNavigation.addEventListener('close', finishClosingMobileNavigation);
+mobileNavigation.addEventListener('click', event => {
+  if (event.target === mobileNavigation) mobileNavigation.close();
+});
+mobileNavigationPanel.addEventListener('touchstart', event => {
+  mobilePanelTouchStartX = event.touches[0]?.clientX ?? null;
+}, { passive: true });
+mobileNavigationPanel.addEventListener('touchend', event => {
+  const endX = event.changedTouches[0]?.clientX;
+  if (mobilePanelTouchStartX !== null && endX !== undefined && endX - mobilePanelTouchStartX > 70) {
+    mobileNavigation.close();
+  }
+  mobilePanelTouchStartX = null;
+}, { passive: true });
+
 mapViewport.addEventListener('wheel', event => {
   event.preventDefault();
   setMapScale(mapScale * (event.deltaY < 0 ? 1.16 : .86));
