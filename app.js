@@ -327,13 +327,14 @@ mapRecordYes.addEventListener('click', () => {
 
 const mobileMenuHandle = document.querySelector('.mobile-menu-handle');
 const mobileNavigation = document.querySelector('.mobile-navigation');
-const mobileNavigationPanel = mobileNavigation.querySelector('.mobile-navigation-panel');
 const mobileNavigationClose = mobileNavigation.querySelector('.mobile-navigation-close');
+const mobileNavigationTop = mobileNavigation.querySelector('.mobile-navigation-top');
 const mobileNavigationMap = mobileNavigation.querySelector('.mobile-navigation-map');
 const mobileNavigationDays = mobileNavigation.querySelector('.mobile-navigation-days');
 const dayStories = [...document.querySelectorAll('.day-story[id]')];
-let mobileMenuPointerStartX = null;
-let mobilePanelTouchStartX = null;
+let topMenuLastScrollY = window.scrollY;
+let topMenuScrollFrame = 0;
+let topMenuRevealPointer = null;
 
 function closeMobileNavigationThen(action) {
   mobileNavigation.addEventListener('close', () => requestAnimationFrame(action), { once: true });
@@ -379,6 +380,7 @@ function updateMobileNavigationCurrentDay() {
 
 function openMobileNavigation() {
   if (mobileNavigation.open) return;
+  mobileMenuHandle.classList.remove('is-auto-hidden');
   updateMobileNavigationCurrentDay();
   mobileNavigation.showModal();
   mobileMenuHandle.setAttribute('aria-expanded', 'true');
@@ -388,24 +390,66 @@ function openMobileNavigation() {
 function finishClosingMobileNavigation() {
   mobileMenuHandle.setAttribute('aria-expanded', 'false');
   document.body.classList.remove('mobile-navigation-open');
+  mobileMenuHandle.classList.remove('is-auto-hidden');
 }
 
-mobileMenuHandle.addEventListener('click', openMobileNavigation);
-mobileMenuHandle.addEventListener('pointerdown', event => {
-  mobileMenuPointerStartX = event.clientX;
-  mobileMenuHandle.setPointerCapture?.(event.pointerId);
-});
-mobileMenuHandle.addEventListener('pointerup', event => {
-  if (mobileMenuPointerStartX !== null && event.clientX - mobileMenuPointerStartX < -24) {
-    openMobileNavigation();
+function hideTopMenu() {
+  if (!mobileNavigation.open && window.scrollY > 72) {
+    mobileMenuHandle.classList.add('is-auto-hidden');
   }
-  mobileMenuPointerStartX = null;
-});
-mobileMenuHandle.addEventListener('pointercancel', () => {
-  mobileMenuPointerStartX = null;
-});
+}
+
+function showTopMenu() {
+  mobileMenuHandle.classList.remove('is-auto-hidden');
+}
+
+window.addEventListener('scroll', () => {
+  if (topMenuScrollFrame) return;
+  topMenuScrollFrame = requestAnimationFrame(() => {
+    const currentScrollY = window.scrollY;
+    const delta = currentScrollY - topMenuLastScrollY;
+    if (currentScrollY <= 16 || delta < -7) showTopMenu();
+    else if (delta > 7) hideTopMenu();
+    topMenuLastScrollY = currentScrollY;
+    topMenuScrollFrame = 0;
+  });
+}, { passive: true });
+
+document.addEventListener('pointerdown', event => {
+  if (!mobileMenuHandle.classList.contains('is-auto-hidden') || mobileNavigation.open) return;
+  topMenuRevealPointer = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    time: performance.now()
+  };
+}, { passive: true, capture: true });
+
+document.addEventListener('pointerup', event => {
+  if (!topMenuRevealPointer || event.pointerId !== topMenuRevealPointer.id) return;
+  const distance = Math.hypot(
+    event.clientX - topMenuRevealPointer.x,
+    event.clientY - topMenuRevealPointer.y
+  );
+  const elapsed = performance.now() - topMenuRevealPointer.time;
+  topMenuRevealPointer = null;
+  if (distance < 12 && elapsed < 550) showTopMenu();
+}, { passive: true, capture: true });
+
+document.addEventListener('pointercancel', () => {
+  topMenuRevealPointer = null;
+}, { passive: true, capture: true });
+
+mobileMenuHandle.addEventListener('click', openMobileNavigation);
 
 mobileNavigationClose.addEventListener('click', () => mobileNavigation.close());
+mobileNavigationTop.addEventListener('click', () => {
+  closeMobileNavigationThen(() => {
+    history.pushState(null, '', '#top');
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    showTopMenu();
+  });
+});
 mobileNavigationMap.addEventListener('click', () => {
   closeMobileNavigationThen(openMapDialog);
 });
@@ -417,16 +461,6 @@ mobileNavigation.addEventListener('close', finishClosingMobileNavigation);
 mobileNavigation.addEventListener('click', event => {
   if (event.target === mobileNavigation) mobileNavigation.close();
 });
-mobileNavigationPanel.addEventListener('touchstart', event => {
-  mobilePanelTouchStartX = event.touches[0]?.clientX ?? null;
-}, { passive: true });
-mobileNavigationPanel.addEventListener('touchend', event => {
-  const endX = event.changedTouches[0]?.clientX;
-  if (mobilePanelTouchStartX !== null && endX !== undefined && endX - mobilePanelTouchStartX > 70) {
-    mobileNavigation.close();
-  }
-  mobilePanelTouchStartX = null;
-}, { passive: true });
 
 mapViewport.addEventListener('wheel', event => {
   event.preventDefault();
