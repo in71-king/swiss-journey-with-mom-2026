@@ -1,0 +1,81 @@
+name: Apply day 9 full-quality videos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-day9-full-video.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-day9-full-video
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download and verify day 9 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://swiss-journey-day8-transfer.easymel.chatgpt.site"
+          mkdir -p /tmp/day9-transfer
+          cd /tmp/day9-transfer
+          for part in 00 01 02 03 04 05 06; do
+            curl --fail --location --retry 3 \
+              "$base/day9-update.tar.gz.part-$part" \
+              --output "day9-update.tar.gz.part-$part"
+          done
+          curl --fail --location --retry 3 \
+            "$base/day9-update.parts.sha256" \
+            --output day9-update.parts.sha256
+          sed 's#  dist/#  #' day9-update.parts.sha256 > day9-update.parts.local.sha256
+          sha256sum -c day9-update.parts.local.sha256
+          cat day9-update.tar.gz.part-* > day9-update.tar.gz
+          echo "63e4757edcc9106a7beb9c7fc5e5d252ff4399825e00f2ecd62459d3bf088248  day9-update.tar.gz" | sha256sum -c -
+          tar -tzf day9-update.tar.gz > day9-update.contents.txt
+          grep -qx 'index.html' day9-update.contents.txt
+          grep -qx 'assets/day9/gornergrat-visit.mp4' day9-update.contents.txt
+          grep -qx 'assets/day9/matterhorn-train.mp4' day9-update.contents.txt
+          grep -qx 'assets/day9/alphorn-performance.mp4' day9-update.contents.txt
+          grep -qx 'assets/day9/golden-matterhorn-attempt.mp4' day9-update.contents.txt
+
+      - name: Apply day 9 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -r --ignore-unmatch assets/day9
+          tar -xzf /tmp/day9-transfer/day9-update.tar.gz -C .
+          test -s index.html
+          test "$(find assets/day9 -maxdepth 1 -name '*.webp' | wc -l)" -eq 39
+          test "$(find assets/day9 -maxdepth 1 -name '*.mp4' | wc -l)" -eq 4
+          test ! -d assets/day9/video-parts
+          for video in \
+            assets/day9/gornergrat-visit.mp4 \
+            assets/day9/matterhorn-train.mp4 \
+            assets/day9/alphorn-performance.mp4 \
+            assets/day9/golden-matterhorn-attempt.mp4; do
+            test -s "$video"
+          done
+          git add index.html assets/day9
+
+      - name: Commit day 9 update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "No day 9 changes to commit."
+            exit 0
+          fi
+          git commit -m "Replace day 9 video segments with full-quality files"
+          git push
