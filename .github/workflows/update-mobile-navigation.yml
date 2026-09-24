@@ -1,0 +1,412 @@
+name: Update mobile navigation and lightbox controls
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/update-mobile-navigation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply verified site patch
+        shell: bash
+        run: |
+          cat > /tmp/mobile-navigation.patch <<'PATCH'
+          diff --git a/app.js b/app.js
+          index 11dcafb..24b3b0d 100644
+          --- a/app.js
+          +++ b/app.js
+          @@ -6,6 +6,7 @@ if (window.startTravelDiaryAtTop) {
+           
+           const dialog = document.querySelector('.lightbox');
+           const lightboxImage = dialog.querySelector('img');
+          +const lightboxControls = dialog.querySelector('.lightbox-controls');
+           const closeButton = dialog.querySelector('.lightbox-close');
+           const previousButton = dialog.querySelector('.lightbox-prev');
+           const nextButton = dialog.querySelector('.lightbox-next');
+          @@ -65,8 +66,21 @@ function lightboxIsZoomed() {
+             return Math.max(reportedScale, inferredScale) > 1.03;
+           }
+           
+          -function moveWithinLightbox(direction) {
+          -  if (lightboxIsZoomed()) return;
+          +function syncLightboxControlsToViewport() {
+          +  if (!dialog.open || !lightboxControls) return;
+          +  const viewport = window.visualViewport;
+          +  if (!viewport) {
+          +    lightboxControls.removeAttribute('style');
+          +    return;
+          +  }
+          +  const scale = Math.max(1, viewport.scale || 1);
+          +  lightboxControls.style.width = `${viewport.width * scale}px`;
+          +  lightboxControls.style.height = `${viewport.height * scale}px`;
+          +  lightboxControls.style.transform = `translate3d(${viewport.offsetLeft}px, ${viewport.offsetTop}px, 0) scale(${1 / scale})`;
+          +}
+          +
+          +function moveWithinLightbox(direction, { allowWhenZoomed = false } = {}) {
+          +  if (!allowWhenZoomed && lightboxIsZoomed()) return;
+             const currentButton = buttons[currentIndex];
+             const position = groupByButton.get(currentButton);
+             if (!position) return;
+          @@ -95,12 +109,22 @@ buttons.forEach((button, index) => {
+               requestPortraitOrientation();
+               showImage(index);
+               dialog.showModal();
+          +    requestAnimationFrame(syncLightboxControlsToViewport);
+             });
+           });
+           
+           closeButton.addEventListener('click', () => dialog.close());
+          -previousButton.addEventListener('click', () => moveWithinLightbox(-1));
+          -nextButton.addEventListener('click', () => moveWithinLightbox(1));
+          +previousButton.addEventListener('click', event => {
+          +  event.stopPropagation();
+          +  moveWithinLightbox(-1, { allowWhenZoomed: true });
+          +});
+          +nextButton.addEventListener('click', event => {
+          +  event.stopPropagation();
+          +  moveWithinLightbox(1, { allowWhenZoomed: true });
+          +});
+          +dialog.addEventListener('close', () => lightboxControls.removeAttribute('style'));
+          +window.visualViewport?.addEventListener('resize', syncLightboxControlsToViewport);
+          +window.visualViewport?.addEventListener('scroll', syncLightboxControlsToViewport);
+           
+           boundaryNoButton.addEventListener('click', closeBoundaryDialog);
+           boundaryYesButton.addEventListener('click', () => {
+          @@ -300,6 +324,110 @@ mapRecordYes.addEventListener('click', () => {
+             if (mapDialog.open) mapDialog.close();
+             requestAnimationFrame(() => goToTravelRecord(target));
+           });
+          +
+          +const mobileMenuHandle = document.querySelector('.mobile-menu-handle');
+          +const mobileNavigation = document.querySelector('.mobile-navigation');
+          +const mobileNavigationPanel = mobileNavigation.querySelector('.mobile-navigation-panel');
+          +const mobileNavigationClose = mobileNavigation.querySelector('.mobile-navigation-close');
+          +const mobileNavigationMap = mobileNavigation.querySelector('.mobile-navigation-map');
+          +const mobileNavigationDays = mobileNavigation.querySelector('.mobile-navigation-days');
+          +const dayStories = [...document.querySelectorAll('.day-story[id]')];
+          +let mobileMenuPointerStartX = null;
+          +let mobilePanelTouchStartX = null;
+          +
+          +function closeMobileNavigationThen(action) {
+          +  mobileNavigation.addEventListener('close', () => requestAnimationFrame(action), { once: true });
+          +  mobileNavigation.close();
+          +}
+          +
+          +document.querySelectorAll('.day-list .day-card[href^="#day"]').forEach(card => {
+          +  const link = document.createElement('a');
+          +  link.href = card.getAttribute('href');
+          +  const number = card.querySelector('.day-number')?.textContent?.trim() || '';
+          +  const title = card.querySelector('h3')?.textContent?.trim() || '';
+          +  link.innerHTML = `<span>${number}</span><strong>${title}</strong>`;
+          +  link.addEventListener('click', event => {
+          +    event.preventDefault();
+          +    const target = link.getAttribute('href');
+          +    closeMobileNavigationThen(() => goToTravelRecord(target));
+          +  });
+          +  mobileNavigationDays.append(link);
+          +});
+          +
+          +function currentTravelRecordId() {
+          +  const readingLine = window.innerHeight * .38;
+          +  const visible = dayStories.find(story => {
+          +    const bounds = story.getBoundingClientRect();
+          +    return bounds.top <= readingLine && bounds.bottom > readingLine;
+          +  });
+          +  if (visible) return `#${visible.id}`;
+          +  const nearest = dayStories
+          +    .map(story => ({ story, distance: Math.abs(story.getBoundingClientRect().top - readingLine) }))
+          +    .sort((a, b) => a.distance - b.distance)[0]?.story;
+          +  return nearest ? `#${nearest.id}` : '';
+          +}
+          +
+          +function updateMobileNavigationCurrentDay() {
+          +  const currentTarget = currentTravelRecordId();
+          +  mobileNavigationDays.querySelectorAll('a').forEach(link => {
+          +    const isCurrent = link.getAttribute('href') === currentTarget;
+          +    link.classList.toggle('is-current', isCurrent);
+          +    if (isCurrent) link.setAttribute('aria-current', 'location');
+          +    else link.removeAttribute('aria-current');
+          +  });
+          +}
+          +
+          +function openMobileNavigation() {
+          +  if (mobileNavigation.open) return;
+          +  updateMobileNavigationCurrentDay();
+          +  mobileNavigation.showModal();
+          +  mobileMenuHandle.setAttribute('aria-expanded', 'true');
+          +  document.body.classList.add('mobile-navigation-open');
+          +}
+          +
+          +function finishClosingMobileNavigation() {
+          +  mobileMenuHandle.setAttribute('aria-expanded', 'false');
+          +  document.body.classList.remove('mobile-navigation-open');
+          +}
+          +
+          +mobileMenuHandle.addEventListener('click', openMobileNavigation);
+          +mobileMenuHandle.addEventListener('pointerdown', event => {
+          +  mobileMenuPointerStartX = event.clientX;
+          +  mobileMenuHandle.setPointerCapture?.(event.pointerId);
+          +});
+          +mobileMenuHandle.addEventListener('pointerup', event => {
+          +  if (mobileMenuPointerStartX !== null && event.clientX - mobileMenuPointerStartX < -24) {
+          +    openMobileNavigation();
+          +  }
+          +  mobileMenuPointerStartX = null;
+          +});
+          +mobileMenuHandle.addEventListener('pointercancel', () => {
+          +  mobileMenuPointerStartX = null;
+          +});
+          +
+          +mobileNavigationClose.addEventListener('click', () => mobileNavigation.close());
+          +mobileNavigationMap.addEventListener('click', () => {
+          +  closeMobileNavigationThen(openMapDialog);
+          +});
+          +mobileNavigation.addEventListener('cancel', event => {
+          +  event.preventDefault();
+          +  mobileNavigation.close();
+          +});
+          +mobileNavigation.addEventListener('close', finishClosingMobileNavigation);
+          +mobileNavigation.addEventListener('click', event => {
+          +  if (event.target === mobileNavigation) mobileNavigation.close();
+          +});
+          +mobileNavigationPanel.addEventListener('touchstart', event => {
+          +  mobilePanelTouchStartX = event.touches[0]?.clientX ?? null;
+          +}, { passive: true });
+          +mobileNavigationPanel.addEventListener('touchend', event => {
+          +  const endX = event.changedTouches[0]?.clientX;
+          +  if (mobilePanelTouchStartX !== null && endX !== undefined && endX - mobilePanelTouchStartX > 70) {
+          +    mobileNavigation.close();
+          +  }
+          +  mobilePanelTouchStartX = null;
+          +}, { passive: true });
+          +
+           mapViewport.addEventListener('wheel', event => {
+             event.preventDefault();
+             setMapScale(mapScale * (event.deltaY < 0 ? 1.16 : .86));
+          diff --git a/index.html b/index.html
+          index d8d719d..a7c2761 100644
+          --- a/index.html
+          +++ b/index.html
+          @@ -20,7 +20,7 @@
+             </script>
+             <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+             <link rel="manifest" href="./manifest.webmanifest">
+          -  <link rel="stylesheet" href="./styles.css?v=34">
+          +  <link rel="stylesheet" href="./styles.css?v=35">
+           </head>
+           <body>
+             <header class="hero" id="top">
+          @@ -1527,11 +1527,32 @@
+               <a href="#day9"><span aria-hidden="true">♥</span>9일차</a>
+             </nav>
+           
+          +  <button class="mobile-menu-handle" type="button" aria-controls="mobile-navigation" aria-expanded="false">
+          +    <span aria-hidden="true">☰</span><b>목차</b>
+          +  </button>
+          +
+          +  <dialog class="mobile-navigation" id="mobile-navigation" aria-labelledby="mobile-navigation-title">
+          +    <div class="mobile-navigation-panel">
+          +      <header>
+          +        <div>
+          +          <span>여행 바로가기</span>
+          +          <h2 id="mobile-navigation-title">목차</h2>
+          +        </div>
+          +        <button class="mobile-navigation-close" type="button" aria-label="목차 닫기">×</button>
+          +      </header>
+          +      <button class="mobile-navigation-map" type="button"><span aria-hidden="true">⌖</span>여행 지도 크게 보기</button>
+          +      <h3>날짜별 기록</h3>
+          +      <nav class="mobile-navigation-days" aria-label="날짜별 여행 기록"></nav>
+          +    </div>
+          +  </dialog>
+          +
+             <dialog class="lightbox" aria-label="확대 사진">
+               <div class="lightbox-stage">
+          +      <img src="" alt="확대된 여행 사진">
+          +    </div>
+          +    <div class="lightbox-controls" aria-label="확대 사진 조작">
+                 <button class="lightbox-close" aria-label="사진 닫기">×</button>
+                 <button class="lightbox-prev" aria-label="이전 사진">‹</button>
+          -      <img src="" alt="확대된 여행 사진">
+                 <button class="lightbox-next" aria-label="다음 사진">›</button>
+               </div>
+             </dialog>
+          @@ -1613,6 +1634,6 @@
+               </div>
+             </dialog>
+           
+          -  <script src="./app.js?v=29"></script>
+          +  <script src="./app.js?v=30"></script>
+           <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3f3d34b0c09f79b',t:'MTc5MDEwNjQ4Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+           </html>
+          diff --git a/styles.css b/styles.css
+          index f727e31..384aa0f 100644
+          --- a/styles.css
+          +++ b/styles.css
+          @@ -179,14 +179,17 @@ footer a { color: #c9e8f4; }
+           .bottom-nav { position: fixed; z-index: 20; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: grid; grid-template-columns: repeat(3, 1fr); width: min(570px, calc(100% - 24px)); overflow: hidden; border: 1px solid rgba(255,255,255,.22); border-radius: 20px; background: rgba(8,38,61,.95); box-shadow: 0 12px 38px rgba(8,38,61,.3); backdrop-filter: blur(16px); }
+           .bottom-nav a { display: grid; place-items: center; min-height: 66px; padding: 7px 5px; color: white; font-size: .68rem; font-weight: 800; text-align: center; text-decoration: none; }
+           .bottom-nav span { color: #9bd4ea; font-size: 1.05rem; line-height: 1; }
+          +.mobile-menu-handle, .mobile-navigation { display: none; }
+           
+           .lightbox { position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; box-sizing: border-box; background: rgba(2,13,21,.94); }
+           .lightbox[open] { display: grid; place-items: center; }
+           .lightbox::backdrop { background: rgba(2,13,21,.94); }
+           .lightbox-stage { position: absolute; inset: 0; display: grid; width: 100%; height: 100%; place-items: center; padding: max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); overflow: hidden; box-sizing: border-box; transform-origin: center; }
+          +.lightbox-controls { position: fixed; z-index: 3; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; pointer-events: none; }
+           .lightbox img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; object-fit: contain; object-position: center; opacity: 1; transition: opacity .12s ease; }
+           .lightbox img.is-loading { opacity: 0; }
+           .lightbox button { position: absolute; z-index: 2; display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; color: white; background: rgba(8,38,61,.75); font-size: 2rem; cursor: pointer; }
+          +.lightbox-controls button { pointer-events: auto; touch-action: manipulation; }
+           .lightbox-close { top: 18px; right: 18px; }
+           .lightbox-prev { left: 18px; top: 50%; transform: translateY(-50%); }
+           .lightbox-next { right: 18px; top: 50%; transform: translateY(-50%); }
+          @@ -317,6 +320,110 @@ body :where(p, a, span, time, strong, b, button, figcaption, blockquote) {
+             .bottom-nav { display: none; }
+             footer { padding-bottom: 56px; }
+           
+          +  body.mobile-navigation-open { overflow: hidden; }
+          +  .mobile-menu-handle {
+          +    position: fixed;
+          +    z-index: 19;
+          +    right: 0;
+          +    top: 50%;
+          +    display: grid;
+          +    width: 62px;
+          +    min-height: 118px;
+          +    place-items: center;
+          +    gap: 4px;
+          +    padding: 12px 8px;
+          +    border: 1px solid rgba(255,255,255,.32);
+          +    border-right: 0;
+          +    border-radius: 20px 0 0 20px;
+          +    color: white;
+          +    background: rgba(8,38,61,.94);
+          +    box-shadow: 0 8px 28px rgba(2,13,21,.32);
+          +    transform: translateY(-50%);
+          +    transition: opacity .18s ease, transform .18s ease;
+          +    touch-action: none;
+          +    cursor: pointer;
+          +  }
+          +  .mobile-menu-handle span { color: #9bd4ea; font-size: 1.4rem !important; line-height: 1; }
+          +  .mobile-menu-handle b { font-size: 1rem !important; writing-mode: vertical-rl; letter-spacing: .12em; }
+          +  body.mobile-navigation-open .mobile-menu-handle { opacity: 0; pointer-events: none; transform: translate(100%,-50%); }
+          +
+          +  .mobile-navigation {
+          +    width: 100vw;
+          +    height: 100dvh;
+          +    max-width: none;
+          +    max-height: none;
+          +    margin: 0;
+          +    padding: 0;
+          +    overflow: hidden;
+          +    border: 0;
+          +    background: transparent;
+          +  }
+          +  .mobile-navigation[open] { display: flex; justify-content: flex-end; }
+          +  .mobile-navigation::backdrop { background: rgba(2,13,21,.62); }
+          +  .mobile-navigation-panel {
+          +    width: min(94vw, 460px);
+          +    height: 100%;
+          +    margin-left: auto;
+          +    padding: max(20px,env(safe-area-inset-top)) 18px max(24px,env(safe-area-inset-bottom));
+          +    overflow-x: hidden;
+          +    overflow-y: auto;
+          +    overscroll-behavior: contain;
+          +    color: var(--ink);
+          +    background: #f6f9fb;
+          +    box-shadow: -16px 0 48px rgba(2,13,21,.3);
+          +    animation: mobile-navigation-in .2s ease-out;
+          +  }
+          +  .mobile-navigation-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 22px; }
+          +  .mobile-navigation-panel > header span { color: var(--red); font-size: 1rem !important; font-weight: 900; }
+          +  .mobile-navigation-panel h2 { margin: 2px 0 0; color: var(--navy-deep); font-size: 2.15rem; line-height: 1.15; }
+          +  .mobile-navigation-panel h3 { margin: 30px 2px 14px; color: var(--navy-deep); font-size: 1.45rem; }
+          +  .mobile-navigation-close {
+          +    flex: 0 0 auto;
+          +    width: 58px;
+          +    height: 58px;
+          +    padding: 0;
+          +    border: 0;
+          +    border-radius: 50%;
+          +    color: white;
+          +    background: var(--navy);
+          +    font-size: 2rem !important;
+          +    cursor: pointer;
+          +  }
+          +  .mobile-navigation-map {
+          +    display: flex;
+          +    width: 100%;
+          +    min-height: 76px;
+          +    align-items: center;
+          +    justify-content: center;
+          +    gap: 10px;
+          +    padding: 14px;
+          +    border: 0;
+          +    border-radius: 16px;
+          +    color: white;
+          +    background: var(--navy);
+          +    font-size: 1.18rem !important;
+          +    font-weight: 900;
+          +    cursor: pointer;
+          +  }
+          +  .mobile-navigation-map span { color: #9bd4ea; font-size: 1.45rem !important; }
+          +  .mobile-navigation-days { display: grid; gap: 10px; }
+          +  .mobile-navigation-days a {
+          +    display: grid;
+          +    grid-template-columns: 82px minmax(0,1fr);
+          +    min-height: 86px;
+          +    align-items: center;
+          +    gap: 12px;
+          +    padding: 13px 14px;
+          +    border: 2px solid var(--line);
+          +    border-radius: 16px;
+          +    background: white;
+          +    text-decoration: none;
+          +  }
+          +  .mobile-navigation-days a span { color: var(--red); font-size: 1.08rem !important; font-weight: 900; }
+          +  .mobile-navigation-days a strong { color: var(--navy-deep); font-size: 1.12rem !important; line-height: 1.35; }
+          +  .mobile-navigation-days a.is-current { border-color: var(--red); background: #fff4f1; box-shadow: 0 6px 18px rgba(217,74,61,.14); }
+          +  .mobile-navigation-days a.is-current span::before { content: '● '; }
+          +
+             .map-dialog[open] { display: grid; overflow: hidden; }
+             .map-dialog-close { width: 54px; height: 54px; }
+             .map-viewport { width: 100%; min-height: 0; }
+          @@ -331,6 +438,11 @@ body :where(p, a, span, time, strong, b, button, figcaption, blockquote) {
+             .video-time { letter-spacing: -.06em; }
+           }
+           
+          +@keyframes mobile-navigation-in {
+          +  from { transform: translateX(100%); }
+          +  to { transform: translateX(0); }
+          +}
+          +
+           @media (max-width: 760px) {
+             .map-marker span { font-size: .64rem !important; }
+             .map-marker em { font-size: .56rem !important; }
+          
+          PATCH
+          git apply --check /tmp/mobile-navigation.patch
+          git apply /tmp/mobile-navigation.patch
+          node --check app.js
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "app.js index.html styles.css "
+          test "$(grep -o 'class="mobile-menu-handle"' index.html | wc -l)" -eq 1
+          test "$(grep -o 'class="day-card complete"' index.html | wc -l)" -eq 9
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js index.html styles.css
+          git commit -m "Improve mobile navigation and lightbox controls"
+          git push
