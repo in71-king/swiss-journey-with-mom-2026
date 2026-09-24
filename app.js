@@ -5,6 +5,7 @@ if (window.startTravelDiaryAtTop) {
 }
 
 const dialog = document.querySelector('.lightbox');
+const lightboxStage = dialog.querySelector('.lightbox-stage');
 const lightboxImage = dialog.querySelector('img');
 const lightboxControls = dialog.querySelector('.lightbox-controls');
 const closeButton = dialog.querySelector('.lightbox-close');
@@ -23,14 +24,92 @@ photoGroups.forEach((group, groupIndex) => {
   group.buttons.forEach((button, imageIndex) => groupByButton.set(button, { groupIndex, imageIndex }));
 });
 let currentIndex = 0;
-let touchStartX = 0;
-let touchGestureIsPinch = false;
 let pendingBoundaryTarget = null;
+const lightboxPointers = new Map();
+const maxLightboxScale = 5;
+let lightboxScale = 1;
+let lightboxX = 0;
+let lightboxY = 0;
+let lightboxSwipeStart = null;
+let lightboxLastPointer = null;
+let lightboxGestureWasPinch = false;
+let lightboxPinchStart = null;
+
+function applyLightboxImageTransform() {
+  lightboxImage.style.transform = `translate3d(${lightboxX}px, ${lightboxY}px, 0) scale(${lightboxScale})`;
+}
+
+function clampLightboxPan() {
+  if (lightboxScale <= 1 || !lightboxImage.naturalWidth || !lightboxImage.naturalHeight) {
+    lightboxX = 0;
+    lightboxY = 0;
+    return;
+  }
+
+  const stageWidth = lightboxStage.clientWidth;
+  const stageHeight = lightboxStage.clientHeight;
+  const imageRatio = lightboxImage.naturalWidth / lightboxImage.naturalHeight;
+  const stageRatio = stageWidth / stageHeight;
+  const displayedWidth = imageRatio > stageRatio ? stageWidth : stageHeight * imageRatio;
+  const displayedHeight = imageRatio > stageRatio ? stageWidth / imageRatio : stageHeight;
+  const maxX = Math.max(0, (displayedWidth * lightboxScale - stageWidth) / 2);
+  const maxY = Math.max(0, (displayedHeight * lightboxScale - stageHeight) / 2);
+  lightboxX = Math.max(-maxX, Math.min(maxX, lightboxX));
+  lightboxY = Math.max(-maxY, Math.min(maxY, lightboxY));
+}
+
+function resetLightboxZoom() {
+  lightboxScale = 1;
+  lightboxX = 0;
+  lightboxY = 0;
+  lightboxPointers.clear();
+  lightboxSwipeStart = null;
+  lightboxLastPointer = null;
+  lightboxGestureWasPinch = false;
+  lightboxPinchStart = null;
+  applyLightboxImageTransform();
+}
+
+function toLightboxLocalVector(x, y) {
+  const rect = lightboxStage.getBoundingClientRect();
+  const centeredX = x - (rect.left + rect.width / 2);
+  const centeredY = y - (rect.top + rect.height / 2);
+  return dialog.classList.contains('is-auto-rotated')
+    ? { x: centeredY, y: -centeredX }
+    : { x: centeredX, y: centeredY };
+}
+
+function lightboxPointerDistance(points) {
+  return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+}
+
+function lightboxPointerCenter(points) {
+  return {
+    x: (points[0].x + points[1].x) / 2,
+    y: (points[0].y + points[1].y) / 2
+  };
+}
+
+function beginLightboxPinch() {
+  const points = [...lightboxPointers.values()].slice(0, 2);
+  if (points.length < 2) return;
+  const center = lightboxPointerCenter(points);
+  lightboxGestureWasPinch = true;
+  lightboxPinchStart = {
+    distance: Math.max(1, lightboxPointerDistance(points)),
+    scale: lightboxScale,
+    x: lightboxX,
+    y: lightboxY,
+    center: toLightboxLocalVector(center.x, center.y)
+  };
+}
 
 function updateLightboxOrientation() {
   if (!lightboxImage.naturalWidth || !lightboxImage.naturalHeight) return;
   const imageRatio = lightboxImage.naturalWidth / lightboxImage.naturalHeight;
   dialog.classList.toggle('is-auto-rotated', foldedPhonePortrait.matches && imageRatio >= 1.55);
+  clampLightboxPan();
+  applyLightboxImageTransform();
   lightboxImage.classList.remove('is-loading');
 }
 
@@ -44,6 +123,7 @@ function requestPortraitOrientation() {
 }
 
 function showImage(index) {
+  resetLightboxZoom();
   currentIndex = Math.min(buttons.length - 1, Math.max(0, index));
   const button = buttons[currentIndex];
   lightboxImage.classList.add('is-loading');
@@ -55,16 +135,6 @@ function showImage(index) {
 
 lightboxImage.addEventListener('load', updateLightboxOrientation);
 foldedPhonePortrait.addEventListener('change', updateLightboxOrientation);
-
-function lightboxIsZoomed() {
-  const viewport = window.visualViewport;
-  if (!viewport) return false;
-  const reportedScale = viewport.scale || 1;
-  const inferredScale = viewport.width > 0
-    ? document.documentElement.clientWidth / viewport.width
-    : 1;
-  return Math.max(reportedScale, inferredScale) > 1.03;
-}
 
 function syncLightboxControlsToViewport() {
   if (!dialog.open || !lightboxControls) return;
@@ -79,8 +149,7 @@ function syncLightboxControlsToViewport() {
   lightboxControls.style.transform = `translate3d(${viewport.offsetLeft}px, ${viewport.offsetTop}px, 0) scale(${1 / scale})`;
 }
 
-function moveWithinLightbox(direction, { allowWhenZoomed = false } = {}) {
-  if (!allowWhenZoomed && lightboxIsZoomed()) return;
+function moveWithinLightbox(direction) {
   const currentButton = buttons[currentIndex];
   const position = groupByButton.get(currentButton);
   if (!position) return;
@@ -93,6 +162,7 @@ function moveWithinLightbox(direction, { allowWhenZoomed = false } = {}) {
   }
 
   pendingBoundaryTarget = group.figure;
+  resetLightboxZoom();
   boundaryMessage.textContent = direction > 0
     ? '마지막 이미지입니다. 종료하시겠습니까?'
     : '처음 이미지입니다. 종료하시겠습니까?';
@@ -116,13 +186,16 @@ buttons.forEach((button, index) => {
 closeButton.addEventListener('click', () => dialog.close());
 previousButton.addEventListener('click', event => {
   event.stopPropagation();
-  moveWithinLightbox(-1, { allowWhenZoomed: true });
+  moveWithinLightbox(-1);
 });
 nextButton.addEventListener('click', event => {
   event.stopPropagation();
-  moveWithinLightbox(1, { allowWhenZoomed: true });
+  moveWithinLightbox(1);
 });
-dialog.addEventListener('close', () => lightboxControls.removeAttribute('style'));
+dialog.addEventListener('close', () => {
+  lightboxControls.removeAttribute('style');
+  resetLightboxZoom();
+});
 window.visualViewport?.addEventListener('resize', syncLightboxControlsToViewport);
 window.visualViewport?.addEventListener('scroll', syncLightboxControlsToViewport);
 
@@ -143,40 +216,97 @@ dialog.addEventListener('keydown', event => {
   if (event.key === 'ArrowRight') moveWithinLightbox(1);
 });
 
-dialog.addEventListener('touchstart', event => {
-  if (lightboxIsZoomed() || event.touches.length > 1 || event.changedTouches.length > 1) {
-    touchGestureIsPinch = true;
+lightboxStage.addEventListener('pointerdown', event => {
+  lightboxStage.setPointerCapture?.(event.pointerId);
+  const point = { x: event.clientX, y: event.clientY };
+  lightboxPointers.set(event.pointerId, point);
+
+  if (lightboxPointers.size === 1) {
+    lightboxSwipeStart = point;
+    lightboxLastPointer = point;
+    lightboxGestureWasPinch = false;
+  } else if (lightboxPointers.size === 2) {
+    beginLightboxPinch();
+  }
+});
+
+lightboxStage.addEventListener('pointermove', event => {
+  const previousPoint = lightboxPointers.get(event.pointerId);
+  if (!previousPoint) return;
+  const point = { x: event.clientX, y: event.clientY };
+  lightboxPointers.set(event.pointerId, point);
+
+  if (lightboxPointers.size >= 2 && lightboxPinchStart) {
+    const points = [...lightboxPointers.values()].slice(0, 2);
+    const center = lightboxPointerCenter(points);
+    const localCenter = toLightboxLocalVector(center.x, center.y);
+    const nextScale = Math.min(
+      maxLightboxScale,
+      Math.max(1, lightboxPinchStart.scale * lightboxPointerDistance(points) / lightboxPinchStart.distance)
+    );
+    const scaleRatio = nextScale / lightboxPinchStart.scale;
+    lightboxScale = nextScale;
+    lightboxX = localCenter.x - (lightboxPinchStart.center.x - lightboxPinchStart.x) * scaleRatio;
+    lightboxY = localCenter.y - (lightboxPinchStart.center.y - lightboxPinchStart.y) * scaleRatio;
+    clampLightboxPan();
+    applyLightboxImageTransform();
+    event.preventDefault();
     return;
   }
-  if (!touchGestureIsPinch && event.touches[0]) {
-    touchStartX = event.touches[0].screenX;
+
+  if (lightboxPointers.size === 1 && lightboxScale > 1.01 && lightboxLastPointer) {
+    const screenDeltaX = point.x - lightboxLastPointer.x;
+    const screenDeltaY = point.y - lightboxLastPointer.y;
+    const localDelta = dialog.classList.contains('is-auto-rotated')
+      ? { x: screenDeltaY, y: -screenDeltaX }
+      : { x: screenDeltaX, y: screenDeltaY };
+    lightboxX += localDelta.x;
+    lightboxY += localDelta.y;
+    clampLightboxPan();
+    applyLightboxImageTransform();
+    event.preventDefault();
   }
-}, { passive: true });
+  lightboxLastPointer = point;
+});
 
-dialog.addEventListener('touchmove', event => {
-  if (lightboxIsZoomed() || event.touches.length > 1) touchGestureIsPinch = true;
-}, { passive: true });
+function finishLightboxPointer(event) {
+  const endPoint = lightboxPointers.get(event.pointerId) || { x: event.clientX, y: event.clientY };
+  lightboxPointers.delete(event.pointerId);
 
-dialog.addEventListener('touchend', event => {
-  if (lightboxIsZoomed()) touchGestureIsPinch = true;
-  if (touchGestureIsPinch) {
-    if (event.touches.length === 0) {
-      touchGestureIsPinch = false;
-      touchStartX = 0;
+  if (lightboxPointers.size === 1) {
+    lightboxLastPointer = [...lightboxPointers.values()][0];
+    lightboxGestureWasPinch = true;
+    lightboxPinchStart = null;
+    return;
+  }
+  if (lightboxPointers.size > 1) {
+    beginLightboxPinch();
+    return;
+  }
+
+  if (lightboxScale < 1.03) {
+    lightboxScale = 1;
+    lightboxX = 0;
+    lightboxY = 0;
+    applyLightboxImageTransform();
+  }
+
+  if (!lightboxGestureWasPinch && lightboxScale === 1 && lightboxSwipeStart) {
+    const deltaX = endPoint.x - lightboxSwipeStart.x;
+    const deltaY = endPoint.y - lightboxSwipeStart.y;
+    if (Math.abs(deltaX) >= 45 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      moveWithinLightbox(deltaX < 0 ? 1 : -1);
     }
-    return;
   }
-  if (event.touches.length > 0 || !event.changedTouches[0]) return;
-  const delta = event.changedTouches[0].screenX - touchStartX;
-  touchStartX = 0;
-  if (Math.abs(delta) < 45) return;
-  moveWithinLightbox(delta < 0 ? 1 : -1);
-}, { passive: true });
 
-dialog.addEventListener('touchcancel', () => {
-  touchGestureIsPinch = false;
-  touchStartX = 0;
-}, { passive: true });
+  lightboxSwipeStart = null;
+  lightboxLastPointer = null;
+  lightboxGestureWasPinch = false;
+  lightboxPinchStart = null;
+}
+
+lightboxStage.addEventListener('pointerup', finishLightboxPointer);
+lightboxStage.addEventListener('pointercancel', finishLightboxPointer);
 
 const mapDialog = document.querySelector('.map-dialog');
 const openMapButton = document.querySelector('.map-open-button');

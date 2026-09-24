@@ -184,9 +184,9 @@ footer a { color: #c9e8f4; }
 .lightbox { position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; box-sizing: border-box; background: rgba(2,13,21,.94); }
 .lightbox[open] { display: grid; place-items: center; }
 .lightbox::backdrop { background: rgba(2,13,21,.94); }
-.lightbox-stage { position: absolute; inset: 0; display: grid; width: 100%; height: 100%; place-items: center; padding: max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); overflow: hidden; box-sizing: border-box; transform-origin: center; }
+.lightbox-stage { position: absolute; inset: 0; display: grid; width: 100%; height: 100%; place-items: center; padding: max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); overflow: hidden; box-sizing: border-box; transform-origin: center; touch-action: none; user-select: none; }
 .lightbox-controls { position: fixed; z-index: 3; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; pointer-events: none; }
-.lightbox img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; object-fit: contain; object-position: center; opacity: 1; transition: opacity .12s ease; }
+.lightbox img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; object-fit: contain; object-position: center; opacity: 1; transform: translate3d(0,0,0) scale(1); transform-origin: center; transition: opacity .12s ease; will-change: transform; }
 .lightbox img.is-loading { opacity: 0; }
 .lightbox button { position: absolute; z-index: 2; display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; color: white; background: rgba(8,38,61,.75); font-size: 2rem; cursor: pointer; }
 .lightbox-controls button { pointer-events: auto; touch-action: manipulation; }
@@ -487,8 +487,8 @@ body :where(p, a, span, time, strong, b, button, figcaption, blockquote) {
 
 @media (max-width: 600px) and (orientation: portrait) {
   .lightbox.is-auto-rotated .lightbox-stage { inset: auto; left: 50%; top: 50%; width: 100dvh; height: 100vw; transform: translate(-50%,-50%) rotate(90deg); }
-  .lightbox.is-auto-rotated .lightbox-prev { left: 18px; right: auto; top: 50%; bottom: auto; transform: translateY(-50%); }
-  .lightbox.is-auto-rotated .lightbox-next { right: 18px; left: auto; top: 50%; bottom: auto; transform: translateY(-50%); }
+  .lightbox.is-auto-rotated .lightbox-prev { left: 18px; right: auto; top: auto; bottom: max(18px,env(safe-area-inset-bottom)); transform: none; }
+  .lightbox.is-auto-rotated .lightbox-next { right: 18px; left: auto; top: auto; bottom: max(18px,env(safe-area-inset-bottom)); transform: none; }
 }
 
 /* 지도는 하나의 SVG 좌표계로 렌더링해 기기 화면비와 글자 확대 설정의 영향을 분리합니다. */
