@@ -1,0 +1,49 @@
+name: Update day 9 souvenir wording
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/update-day9-souvenir-wording.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Replace wording and verify scope
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("index.html")
+          text = path.read_text(encoding="utf-8")
+          replacements = {
+              "기념품점에서 아빠와 지인들에게 줄 열쇠고리를 골랐다.": "기념품점에서 가족과 지인들에게 줄 열쇠고리를 골랐다.",
+              "아빠와 지인들에게 전할 작은 기념품": "가족과 지인들에게 전할 작은 기념품",
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one occurrence of {old!r}, found {count}")
+              text = text.replace(old, new)
+          if "아빠" in text:
+              raise SystemExit("Unexpected remaining occurrence of '아빠' in index.html")
+          path.write_text(text, encoding="utf-8")
+          PY
+          test "$(git diff --name-only)" = "index.html"
+          git diff --check
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Update day 9 souvenir wording"
+          git push
